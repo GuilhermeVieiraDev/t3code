@@ -5,6 +5,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   type MessageId,
   type OrchestrationReadModel,
+  type ProjectEntry,
   type ProjectId,
   type ServerConfig,
   type ThreadId,
@@ -49,6 +50,7 @@ interface TestFixture {
   snapshot: OrchestrationReadModel;
   serverConfig: ServerConfig;
   welcome: WsWelcomePayload;
+  projectSearchEntries: ProjectEntry[];
 }
 
 let fixture: TestFixture;
@@ -152,6 +154,19 @@ function createAssistantMessage(options: { id: MessageId; text: string; offsetSe
     createdAt: isoAt(options.offsetSeconds),
     updatedAt: isoAt(options.offsetSeconds + 1),
   };
+}
+
+function createProjectEntries(paths: string[]): ProjectEntry[] {
+  return paths.map((path) => {
+    const normalizedPath = path.split("/");
+    const label = normalizedPath.at(-1) ?? path;
+    const parentSegments = normalizedPath.slice(0, -1);
+    return {
+      path,
+      kind: label.includes(".") ? "file" : "directory",
+      ...(parentSegments.length > 0 ? { parentPath: parentSegments.join("/") } : {}),
+    };
+  });
 }
 
 function createTerminalContext(input: {
@@ -270,6 +285,7 @@ function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
       bootstrapProjectId: PROJECT_ID,
       bootstrapThreadId: THREAD_ID,
     },
+    projectSearchEntries: [],
   };
 }
 
@@ -420,7 +436,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   }
   if (tag === WS_METHODS.projectsSearchEntries) {
     return {
-      entries: [],
+      entries: fixture.projectSearchEntries,
       truncated: false,
     };
   }
@@ -553,6 +569,20 @@ async function waitForComposerEditor(): Promise<HTMLElement> {
   return waitForElement(
     () => document.querySelector<HTMLElement>('[contenteditable="true"]'),
     "Unable to find composer editor.",
+  );
+}
+
+async function waitForComposerCommandList(): Promise<HTMLElement> {
+  return waitForElement(
+    () => document.querySelector<HTMLElement>('[data-slot="command-list"]'),
+    "Unable to find composer command list.",
+  );
+}
+
+async function waitForActiveComposerCommandItem(): Promise<HTMLElement> {
+  return waitForElement(
+    () => document.querySelector<HTMLElement>('[data-slot="command-item"][data-active]'),
+    "Unable to find active composer command item.",
   );
 }
 
@@ -1037,6 +1067,106 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         async () => {
           expect((await waitForInteractionModeButton("Chat")).title).toContain("enter plan mode");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("scrolls the composer @ menu to keep the keyboard-highlighted file in view", async () => {
+    useComposerDraftStore.getState().setPrompt(THREAD_ID, "@c");
+    const projectEntries = createProjectEntries([
+      "apps/web/src/components/ChatView.tsx",
+      "apps/web/src/components/ComposerPromptEditor.tsx",
+      "apps/web/src/components/chat/ComposerCommandMenu.tsx",
+      "apps/web/src/components/chat/VscodeEntryIcon.tsx",
+      "apps/web/src/components/chat/ProviderModelPicker.tsx",
+      "apps/web/src/components/chat/MessagesTimeline.tsx",
+      "apps/web/src/components/chat/ChangedFilesTree.tsx",
+      "apps/web/src/components/chat/ExpandedImagePreview.tsx",
+      "apps/web/src/components/DiffPanel.tsx",
+      "apps/web/src/components/Sidebar.tsx",
+      "apps/web/src/components/ThreadTerminalDrawer.tsx",
+      "apps/web/src/components/chat/OpenInPicker.tsx",
+      "apps/web/src/components/chat/CompactComposerControlsMenu.tsx",
+      "apps/web/src/components/chat/viewer.tsx",
+    ]);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-target-composer-scroll" as MessageId,
+        targetText: "composer scroll target",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.projectSearchEntries = projectEntries;
+      },
+    });
+
+    try {
+      const composerEditor = await waitForComposerEditor();
+      const commandList = await waitForComposerCommandList();
+      let activePath: string | null = null;
+
+      composerEditor.focus();
+      await vi.waitFor(
+        () => {
+          expect(commandList.childElementCount).toBeGreaterThan(8);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      const commandScrollViewport = commandList.closest<HTMLElement>(
+        '[data-slot="scroll-area-viewport"]',
+      );
+      expect(
+        commandScrollViewport,
+        "Unable to find composer command scroll viewport.",
+      ).toBeTruthy();
+
+      const initialScrollTop = commandScrollViewport!.scrollTop;
+      for (let index = 0; index < 12; index += 1) {
+        composerEditor.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "ArrowDown",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await nextFrame();
+      }
+
+      await vi.waitFor(
+        async () => {
+          const activeItem = await waitForActiveComposerCommandItem();
+          activePath = activeItem.dataset.path ?? null;
+          expect(activePath).toBeTruthy();
+          expect(activePath).not.toBe(projectEntries[0]?.path);
+          expect(commandScrollViewport!.scrollTop).toBeGreaterThan(initialScrollTop);
+
+          const viewportRect = commandScrollViewport!.getBoundingClientRect();
+          const itemRect = activeItem.getBoundingClientRect();
+          expect(itemRect.bottom).toBeLessThanOrEqual(viewportRect.bottom);
+          expect(itemRect.top).toBeGreaterThanOrEqual(viewportRect.top);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      composerEditor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(activePath).toBeTruthy();
+          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toContain(
+            `@${activePath} `,
+          );
         },
         { timeout: 8_000, interval: 16 },
       );

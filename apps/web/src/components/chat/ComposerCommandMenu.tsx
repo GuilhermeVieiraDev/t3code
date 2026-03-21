@@ -1,10 +1,9 @@
 import { type ProjectEntry, type ModelSlug, type ProviderKind } from "@t3tools/contracts";
-import { memo } from "react";
+import { memo, useEffect, useRef, type RefObject } from "react";
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
 import { BotIcon } from "lucide-react";
-import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
-import { Command, CommandItem, CommandList } from "../ui/command";
+import { Command, CommandInput, CommandItem, CommandList } from "../ui/command";
 import { VscodeEntryIcon } from "./VscodeEntryIcon";
 
 export type ComposerCommandItem =
@@ -40,7 +39,18 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   activeItemId: string | null;
   onHighlightedItemChange: (itemId: string | null) => void;
   onSelect: (item: ComposerCommandItem) => void;
+  commandInputRef: RefObject<HTMLInputElement | null>;
 }) {
+  const itemRefs = useRef(new Map<string, HTMLDivElement>());
+
+  useEffect(() => {
+    if (!props.activeItemId) {
+      return;
+    }
+    const activeItem = itemRefs.current.get(props.activeItemId);
+    activeItem?.scrollIntoView({ block: "nearest" });
+  }, [props.activeItemId, props.items]);
+
   return (
     <Command
       mode="none"
@@ -51,11 +61,21 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
       }}
     >
       <div className="relative overflow-hidden rounded-xl border border-border/80 bg-popover/96 shadow-lg/8 backdrop-blur-xs">
+        <div className="pointer-events-none absolute h-0 w-0 overflow-hidden opacity-0">
+          <CommandInput autoFocus={false} ref={props.commandInputRef} />
+        </div>
         <CommandList className="max-h-64">
           {props.items.map((item) => (
             <ComposerCommandMenuItem
               key={item.id}
               item={item}
+              itemRef={(element) => {
+                if (element) {
+                  itemRefs.current.set(item.id, element);
+                  return;
+                }
+                itemRefs.current.delete(item.id);
+              }}
               resolvedTheme={props.resolvedTheme}
               isActive={props.activeItemId === item.id}
               onSelect={props.onSelect}
@@ -78,17 +98,18 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
 
 const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
   item: ComposerCommandItem;
+  itemRef: (element: HTMLDivElement | null) => void;
   resolvedTheme: "light" | "dark";
   isActive: boolean;
   onSelect: (item: ComposerCommandItem) => void;
 }) {
   return (
     <CommandItem
+      ref={props.itemRef}
+      data-active={props.isActive ? "" : undefined}
+      data-path={props.item.type === "path" ? props.item.path : undefined}
       value={props.item.id}
-      className={cn(
-        "cursor-pointer select-none gap-2",
-        props.isActive && "bg-accent text-accent-foreground",
-      )}
+      className="cursor-pointer scroll-my-2 select-none gap-2"
       onMouseDown={(event) => {
         event.preventDefault();
       }}
