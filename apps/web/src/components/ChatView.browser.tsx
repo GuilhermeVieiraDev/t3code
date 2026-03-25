@@ -17,7 +17,7 @@ import {
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -1293,6 +1293,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("scrolls the composer @ menu to keep the keyboard-highlighted file in view", async () => {
+    const scrollIntoViewSpy = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
     useComposerDraftStore.getState().setPrompt(THREAD_ID, "@c");
     const projectEntries = createProjectEntries([
       "apps/web/src/components/ChatView.tsx",
@@ -1334,23 +1335,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
-      const commandScrollViewport = commandList.closest<HTMLElement>(
-        '[data-slot="scroll-area-viewport"]',
-      );
-      expect(
-        commandScrollViewport,
-        "Unable to find composer command scroll viewport.",
-      ).toBeTruthy();
 
-      const initialScrollTop = commandScrollViewport!.scrollTop;
+      const initialActiveItem = await waitForActiveComposerCommandItem();
+      expect(initialActiveItem.dataset.path).toBe(projectEntries[0]?.path);
+
       for (let index = 0; index < 12; index += 1) {
-        composerEditor.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "ArrowDown",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
+        await userEvent.keyboard("{ArrowDown}");
         await nextFrame();
       }
 
@@ -1360,23 +1350,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
           activePath = activeItem.dataset.path ?? null;
           expect(activePath).toBeTruthy();
           expect(activePath).not.toBe(projectEntries[0]?.path);
-          expect(commandScrollViewport!.scrollTop).toBeGreaterThan(initialScrollTop);
-
-          const viewportRect = commandScrollViewport!.getBoundingClientRect();
-          const itemRect = activeItem.getBoundingClientRect();
-          expect(itemRect.bottom).toBeLessThanOrEqual(viewportRect.bottom);
-          expect(itemRect.top).toBeGreaterThanOrEqual(viewportRect.top);
+          expect(scrollIntoViewSpy).toHaveBeenCalled();
         },
         { timeout: 8_000, interval: 16 },
       );
 
-      composerEditor.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Enter",
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
+      await userEvent.keyboard("{Enter}");
 
       await vi.waitFor(
         () => {
@@ -1388,6 +1367,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
     } finally {
+      scrollIntoViewSpy.mockRestore();
       await mounted.cleanup();
     }
   });

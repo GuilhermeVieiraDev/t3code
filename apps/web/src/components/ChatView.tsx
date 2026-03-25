@@ -388,7 +388,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const composerMenuOpenRef = useRef(false);
   const composerMenuItemsRef = useRef<ComposerCommandItem[]>([]);
   const activeComposerMenuItemRef = useRef<ComposerCommandItem | null>(null);
-  const composerCommandInputRef = useRef<HTMLInputElement>(null);
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
   const sendInFlightRef = useRef(false);
@@ -3319,19 +3318,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const onComposerMenuItemHighlighted = useCallback((itemId: string | null) => {
     setComposerHighlightedItemId(itemId);
   }, []);
-  const nudgeComposerMenuHighlight = useCallback((key: "ArrowDown" | "ArrowUp") => {
-    const commandInput = composerCommandInputRef.current;
-    if (!commandInput) {
-      return;
-    }
-    commandInput.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-  }, []);
+  const nudgeComposerMenuHighlight = useCallback(
+    (key: "ArrowDown" | "ArrowUp") => {
+      if (composerMenuItems.length === 0) {
+        return;
+      }
+      const highlightedIndex = composerMenuItems.findIndex(
+        (item) => item.id === composerHighlightedItemId,
+      );
+      const normalizedIndex =
+        highlightedIndex >= 0 ? highlightedIndex : key === "ArrowDown" ? -1 : 0;
+      const offset = key === "ArrowDown" ? 1 : -1;
+      const nextIndex =
+        (normalizedIndex + offset + composerMenuItems.length) % composerMenuItems.length;
+      const nextItem = composerMenuItems[nextIndex];
+      setComposerHighlightedItemId(nextItem?.id ?? null);
+    },
+    [composerHighlightedItemId, composerMenuItems],
+  );
   const isComposerMenuLoading =
     composerTriggerKind === "path" &&
     ((pathTriggerQuery.length > 0 && composerPathQueryDebouncer.state.isPending) ||
@@ -3649,7 +3653,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
                           activeItemId={activeComposerMenuItem?.id ?? null}
                           onHighlightedItemChange={onComposerMenuItemHighlighted}
                           onSelect={onSelectComposerItem}
-                          commandInputRef={composerCommandInputRef}
                         />
                       </div>
                     )}
