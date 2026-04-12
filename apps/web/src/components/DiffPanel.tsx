@@ -463,7 +463,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
           style={
             canScrollTurnStripLeft || canScrollTurnStripRight
               ? {
-                  maskImage: `linear-gradient(to right, ${canScrollTurnStripLeft ? "transparent, black 32px" : "black"}, ${canScrollTurnStripRight ? "black calc(100% - 32px), transparent" : "black"})`,
+                  maskImage: `linear-gradient(to right, ${canScrollTurnStripLeft ? "transparent 24px, black 72px" : "black"}, ${canScrollTurnStripRight ? "black calc(100% - 72px), transparent calc(100% - 24px)" : "black"})`,
                 }
               : undefined
           }
